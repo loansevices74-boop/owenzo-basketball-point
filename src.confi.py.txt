@@ -1,0 +1,207 @@
+"""LeagueProfile dataclass + every tunable prior (Blessings upgrade)."""
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass
+class LeagueProfile:
+    """Per-league tunable constants — Blessings: own σ_FT & H1 share after ~100 games."""
+    name: str
+    country: str
+    feed: str  # "api-basketball" | "nba_api" | "euroleague" | "csv"
+    avg_home_score: float = 82.0
+    avg_away_score: float = 78.0
+    h1_share: float = 0.48          # first-half share of FT total
+    sigma_ft: float = 14.0          # FT total std dev
+    sigma_margin: float = 10.0      # margin std dev
+    corr_margin_total: float = 0.15 # corr(margin, total)
+    home_court_advantage: float = 4.0  # points
+    shrinkage_k: float = 12.0       # games to reach 50% of prior
+    min_games_for_own_params: int = 100  # Blessings: switch to own params
+    stake_ceiling_pct: float = 3.0  # Blessings: per-league stake ceiling
+    api_league_id: Optional[int] = None
+
+
+# ── 42-category registry (all leagues from screenshots) ──────────────────
+LEAGUE_REGISTRY: dict[str, LeagueProfile] = {
+    # International
+    "EuroLeague": LeagueProfile("EuroLeague", "International", "euroleague",
+                                avg_home_score=82, avg_away_score=78, h1_share=0.49,
+                                sigma_ft=13.5, api_league_id=120),
+    "EuroCup": LeagueProfile("EuroCup", "International", "api-basketball",
+                             avg_home_score=80, avg_away_score=76, h1_share=0.48,
+                             api_league_id=121),
+    "BCL": LeagueProfile("Basketball Champions League", "International", "api-basketball",
+                         avg_home_score=79, avg_away_score=75, api_league_id=132),
+    "FIBA Europe Cup": LeagueProfile("FIBA Europe Cup", "International", "api-basketball",
+                                     avg_home_score=78, avg_away_score=74, api_league_id=133),
+    "FIBA World Cup": LeagueProfile("FIBA World Cup", "International", "api-basketball",
+                                    avg_home_score=77, avg_away_score=73, api_league_id=134),
+    "EuroBasket": LeagueProfile("EuroBasket", "International", "api-basketball",
+                                avg_home_score=78, avg_away_score=74, api_league_id=135),
+    "AmeriCup": LeagueProfile("AmeriCup", "International", "api-basketball",
+                              avg_home_score=76, avg_away_score=72, api_league_id=136),
+    "AfroBasket": LeagueProfile("AfroBasket", "International", "api-basketball",
+                                avg_home_score=74, avg_away_score=70, api_league_id=137),
+    "Asia Cup": LeagueProfile("FIBA Asia Cup", "International", "api-basketball",
+                              avg_home_score=75, avg_away_score=71, api_league_id=138),
+    "Olympic Games": LeagueProfile("Olympic Games", "International", "api-basketball",
+                                   avg_home_score=80, avg_away_score=76, api_league_id=139),
+    "Club Friendly Games": LeagueProfile("Club Friendly Games", "International", "api-basketball",
+                                         avg_home_score=80, avg_away_score=77, api_league_id=140),
+
+    # Europe
+    "BNXT League": LeagueProfile("BNXT League", "Europe", "api-basketball",
+                                 avg_home_score=81, avg_away_score=77, api_league_id=141),
+    "Alpe Adria Cup": LeagueProfile("Alpe Adria Cup", "Europe", "api-basketball",
+                                    avg_home_score=79, avg_away_score=75, api_league_id=142),
+
+    # USA
+    "NBA": LeagueProfile("NBA", "USA", "nba_api",
+                         avg_home_score=114, avg_away_score=110, h1_share=0.49,
+                         sigma_ft=22.0, sigma_margin=12.0, home_court_advantage=4.5,
+                         api_league_id=12),
+    "NBA G League": LeagueProfile("NBA G League", "USA", "api-basketball",
+                                  avg_home_score=108, avg_away_score=104, api_league_id=15),
+    "NCAA D-I": LeagueProfile("NCAA Division I", "USA", "api-basketball",
+                              avg_home_score=74, avg_away_score=70, h1_share=0.47,
+                              sigma_ft=16.0, api_league_id=16),
+    "WNBA": LeagueProfile("WNBA", "USA", "api-basketball",
+                          avg_home_score=82, avg_away_score=78, api_league_id=17),
+
+    # Spain
+    "Liga ACB": LeagueProfile("Liga ACB", "Spain", "api-basketball",
+                              avg_home_score=82, avg_away_score=78, api_league_id=118),
+    "LEB Oro": LeagueProfile("LEB Oro", "Spain", "api-basketball",
+                             avg_home_score=78, avg_away_score=74, api_league_id=119),
+    "Copa del Rey": LeagueProfile("Copa del Rey", "Spain", "api-basketball",
+                                  avg_home_score=82, avg_away_score=78, api_league_id=122),
+
+    # Italy
+    "Lega Basket Serie A": LeagueProfile("Lega Basket Serie A", "Italy", "api-basketball",
+                                         avg_home_score=81, avg_away_score=77, api_league_id=127),
+    "Serie A2": LeagueProfile("Serie A2", "Italy", "api-basketball",
+                              avg_home_score=77, avg_away_score=73, api_league_id=128),
+
+    # Turkiye
+    "BSL": LeagueProfile("Basketbol Süper Ligi", "Turkiye", "api-basketball",
+                         avg_home_score=80, avg_away_score=76, api_league_id=129),
+    "TBL": LeagueProfile("TBL", "Turkiye", "api-basketball",
+                         avg_home_score=77, avg_away_score=73, api_league_id=130),
+
+    # France
+    "LNB Pro A": LeagueProfile("LNB Pro A (Betclic Elite)", "France", "api-basketball",
+                               avg_home_score=81, avg_away_score=77, api_league_id=123),
+    "LNB Pro B": LeagueProfile("LNB Pro B", "France", "api-basketball",
+                               avg_home_score=78, avg_away_score=74, api_league_id=124),
+
+    # Germany
+    "BBL": LeagueProfile("Basketball Bundesliga", "Germany", "api-basketball",
+                         avg_home_score=82, avg_away_score=78, api_league_id=125),
+    "ProA": LeagueProfile("ProA", "Germany", "api-basketball",
+                          avg_home_score=79, avg_away_score=75, api_league_id=126),
+
+    # Greece / Serbia / Croatia / Albania / Kosovo
+    "ESAKE": LeagueProfile("Greek Basket League", "Greece", "api-basketball",
+                           avg_home_score=79, avg_away_score=75, api_league_id=143),
+    "KLS Superleague": LeagueProfile("KLS Superleague", "Serbia", "api-basketball",
+                                     avg_home_score=78, avg_away_score=74, api_league_id=144),
+    "Premijer liga": LeagueProfile("Premijer liga", "Croatia", "api-basketball",
+                                   avg_home_score=77, avg_away_score=73, api_league_id=145),
+    "Superliga Albania": LeagueProfile("Superliga", "Albania", "api-basketball",
+                                       avg_home_score=76, avg_away_score=72, api_league_id=146),
+    "Superliga Kosovo": LeagueProfile("Superliga", "Kosovo", "api-basketball",
+                                      avg_home_score=75, avg_away_score=71, api_league_id=147),
+
+    # Poland / Czech / Slovakia / Hungary
+    "Orlen Basket Liga": LeagueProfile("Orlen Basket Liga", "Poland", "api-basketball",
+                                       avg_home_score=79, avg_away_score=75, api_league_id=148),
+    "NBL Czech": LeagueProfile("NBL", "Czech Republic", "api-basketball",
+                               avg_home_score=78, avg_away_score=74, api_league_id=149),
+    "SBL": LeagueProfile("SBL", "Slovakia", "api-basketball",
+                         avg_home_score=77, avg_away_score=73, api_league_id=150),
+    "NB I/A": LeagueProfile("NB I/A", "Hungary", "api-basketball",
+                            avg_home_score=78, avg_away_score=74, api_league_id=151),
+
+    # Russia
+    "VTB United League": LeagueProfile("VTB United League", "Russia", "api-basketball",
+                                       avg_home_score=80, avg_away_score=76, api_league_id=152),
+    "Russian Superleague": LeagueProfile("Superleague", "Russia", "csv",
+                                         avg_home_score=77, avg_away_score=73),
+
+    # Lithuania / Sweden / Denmark / Malta / Austria / Switzerland
+    "LKL": LeagueProfile("LKL", "Lithuania", "api-basketball",
+                         avg_home_score=79, avg_away_score=75, api_league_id=153),
+    "Basketligan": LeagueProfile("Basketligan", "Sweden", "api-basketball",
+                                 avg_home_score=78, avg_away_score=74, api_league_id=154),
+    "Basketligaen": LeagueProfile("Basketligaen", "Denmark", "api-basketball",
+                                  avg_home_score=77, avg_away_score=73, api_league_id=155),
+    "BOV National League": LeagueProfile("BOV National League", "Malta", "api-basketball",
+                                         avg_home_score=74, avg_away_score=70, api_league_id=156),
+    "Superliga Austria": LeagueProfile("Superliga", "Austria", "api-basketball",
+                                       avg_home_score=78, avg_away_score=74, api_league_id=157),
+    "SBL Switzerland": LeagueProfile("SBL", "Switzerland", "api-basketball",
+                                     avg_home_score=79, avg_away_score=75, api_league_id=158),
+
+    # Israel
+    "Winner League": LeagueProfile("Winner League", "Israel", "api-basketball",
+                                   avg_home_score=80, avg_away_score=76, api_league_id=159),
+    "National League Israel": LeagueProfile("National League", "Israel", "api-basketball",
+                                            avg_home_score=76, avg_away_score=72, api_league_id=160),
+
+    # Portugal / Belgium / Netherlands
+    "LPB": LeagueProfile("LPB", "Portugal", "api-basketball",
+                         avg_home_score=78, avg_away_score=74, api_league_id=161),
+    "BNXT League BE": LeagueProfile("BNXT League", "Belgium", "api-basketball",
+                                    avg_home_score=81, avg_away_score=77, api_league_id=141),
+    "DBL": LeagueProfile("DBL", "Netherlands", "api-basketball",
+                         avg_home_score=79, avg_away_score=75, api_league_id=162),
+
+    # Great Britain / England
+    "BBL": LeagueProfile("BBL", "Great Britain and Northern Ireland", "api-basketball",
+                         avg_home_score=78, avg_away_score=74, api_league_id=163),
+    "WBBL": LeagueProfile("WBBL", "Great Britain and Northern Ireland", "api-basketball",
+                          avg_home_score=72, avg_away_score=68, api_league_id=164),
+    "SLB": LeagueProfile("SLB", "England", "api-basketball",
+                         avg_home_score=76, avg_away_score=72, api_league_id=165),
+
+    # Japan / Malaysia / Vietnam
+    "B.League": LeagueProfile("B.League", "Japan", "api-basketball",
+                              avg_home_score=80, avg_away_score=76, api_league_id=166),
+    "D-League Japan": LeagueProfile("D-League", "Japan", "api-basketball",
+                                    avg_home_score=76, avg_away_score=72, api_league_id=167),
+    "MPL": LeagueProfile("Malaysia Premier League", "Malaysia", "api-basketball",
+                         avg_home_score=75, avg_away_score=71, api_league_id=168),
+    "VBA": LeagueProfile("VBA", "Vietnam", "api-basketball",
+                         avg_home_score=77, avg_away_score=73, api_league_id=169),
+
+    # Australia / New Zealand
+    "NBL Australia": LeagueProfile("NBL", "Australia", "api-basketball",
+                                   avg_home_score=88, avg_away_score=84, api_league_id=170),
+    "NBL1": LeagueProfile("NBL1", "Australia", "api-basketball",
+                          avg_home_score=84, avg_away_score=80, api_league_id=171),
+    "NZ NBL": LeagueProfile("NZ NBL", "New Zealand", "api-basketball",
+                            avg_home_score=86, avg_away_score=82, api_league_id=172),
+
+    # Mexico / Puerto Rico / Brazil / Uruguay / Chile
+    "LNBP": LeagueProfile("LNBP", "Mexico", "api-basketball",
+                          avg_home_score=82, avg_away_score=78, api_league_id=173),
+    "CIBACOPA": LeagueProfile("CIBACOPA", "Mexico", "api-basketball",
+                              avg_home_score=80, avg_away_score=76, api_league_id=174),
+    "BSN": LeagueProfile("BSN", "Puerto Rico", "api-basketball",
+                         avg_home_score=81, avg_away_score=77, api_league_id=175),
+    "NBB": LeagueProfile("NBB", "Brazil", "api-basketball",
+                         avg_home_score=80, avg_away_score=76, api_league_id=176),
+    "Brasileiro Serie B": LeagueProfile("Brasileiro Serie B", "Brazil", "csv",
+                                        avg_home_score=76, avg_away_score=72),
+    "LUB": LeagueProfile("LUB", "Uruguay", "api-basketball",
+                         avg_home_score=77, avg_away_score=73, api_league_id=177),
+    "LNB Chile": LeagueProfile("LNB Chile", "Chile", "api-basketball",
+                               avg_home_score=78, avg_away_score=74, api_league_id=178),
+
+    # Uganda / Kenya
+    "NBL Uganda": LeagueProfile("NBL", "Uganda", "api-basketball",
+                                avg_home_score=74, avg_away_score=70, api_league_id=179),
+    "Kenya Basketball League": LeagueProfile("Kenya Basketball League", "Kenya", "api-basketball",
+                                             avg_home_score=73, avg_away_score=69, api_league_id=180),
+}
