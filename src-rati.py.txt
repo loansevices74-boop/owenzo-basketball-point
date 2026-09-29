@@ -1,0 +1,52 @@
+"""Shrunk attack/defence ratings, pace, ORtg, DRtg."""
+import numpy as np
+import pandas as pd
+from src.config import LeagueProfile
+
+
+def compute_ratings(
+    game_log: pd.DataFrame,
+    profile: LeagueProfile,
+) -> pd.DataFrame:
+    """
+    game_log columns: date, home_team, away_team, home_score, away_score
+    Returns DataFrame with team, games, attack, defence, pace, ORtg, DRtg.
+    Shrinkage: w = n/(n+k), k ≈ 12 (Blessings: per-league after ~100 games use own params).
+    """
+    k = profile.shrinkage_k
+
+    # Build team-level stats
+    home = game_log[["home_team", "home_score", "away_score"]].rename(
+        columns={"home_team": "team", "home_score": "score_for", "away_score": "score_against"}
+    )
+    away = game_log[["away_team", "away_score", "home_score"]].rename(
+        columns={"away_team": "team", "away_score": "score_for", "home_score": "score_against"}
+    )
+    combined = pd.concat([home, away], ignore_index=True)
+
+    team_stats = combined.groupby("team").agg(
+        games=("score_for", "count"),
+        avg_for=("score_for", "mean"),
+        avg_against=("score_against", "mean"),
+    ).reset_index()
+
+    # League mean
+    league_avg = combined["score_for"].mean()
+
+    # Raw attack/defence ratios (multiplicative)
+    team_stats["raw_attack"] = team_stats["avg_for"] / league_avg
+    team_stats["raw_defence"] = team_stats["avg_against"] / league_avg
+
+    # Shrinkage weight
+    team_stats["w"] = team_stats["games"] / (team_stats["games"] + k)
+
+    # Shrunk ratings (toward 1.0 = league average)
+    team_stats["attack"] = 1.0 + team_stats["w"] * (team_stats["raw_attack"] - 1.0)
+    team_stats["defence"] = 1.0 + team_stats["w"] * (team_stats["raw_defence"] - 1.0)
+
+    # Pace & efficiency ratings
+    team_stats["pace"] = team_stats["avg_for"] + team_stats["avg_against"]
+    team_stats["ORtg"] = team_stats["avg_for"] / team_stats["pace"] * 100
+    team_stats["DRtg"] = team_stats["avg_against"] / team_stats["pace"] * 100
+
+    return team_stats.sort_values("games", ascending=False)
