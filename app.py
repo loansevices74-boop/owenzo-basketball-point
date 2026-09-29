@@ -37,10 +37,10 @@ st.set_page_config(
 # ── Custom CSS for dark + lime theme ─────────────────────────────────────
 st.markdown("""
 <style>
-    .stApp { background-color: #0D0D1A; }
+    .stApp { background-color: #FFFFFF; }
     .stButton>button {
         background-color: #ADFF2F;
-        color: #0D0D1A;
+        color: #000000;
         font-weight: bold;
         border: none;
         border-radius: 8px;
@@ -48,29 +48,29 @@ st.markdown("""
     }
     .stButton>button:hover { background-color: #9ACD32; }
     .metric-card {
-        background-color: #1A1A2E;
+        background-color: #F0F2F6;
         padding: 20px;
         border-radius: 12px;
-        border: 1px solid #ADFF2F33;
+        border: 1px solid #ADFF2F;
     }
     .vip-badge {
         background: linear-gradient(135deg, #ADFF2F, #7FFF00);
-        color: #0D0D1A;
+        color: #000000;
         padding: 8px 16px;
         border-radius: 20px;
         font-weight: bold;
         display: inline-block;
     }
-    h1, h2, h3 { color: #ADFF2F; }
+    h1, h2, h3 { color: #262730; }
     .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] {
-        background-color: #1A1A2E;
+        background-color: #F0F2F6;
         border-radius: 8px 8px 0 0;
         padding: 10px 20px;
     }
     .stTabs [aria-selected="true"] {
         background-color: #ADFF2F;
-        color: #0D0D1A;
+        color: #000000;
     }
 </style>
 """, unsafe_allow_html=True)
