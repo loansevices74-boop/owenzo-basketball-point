@@ -1,28 +1,19 @@
-"""Odds loader — Blessings: real closing lines feed."""
 import os
 import requests
 import pandas as pd
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# Free odds APIs
-ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")  # the-odds-api.com free tier
-
-
-def get_odds_api_sport(sport_key: str = "basketball_nba", regions: str = "us", markets: str = "totals") -> pd.DataFrame:
-    """
-    Get live odds from The Odds API (free tier: 500 requests/month).
-    """
-    if not ODDS_API_KEY:
+def get_odds_api_sport(sport_key="basketball_nba", regions="us", markets="totals"):
+    try:
+        import streamlit as st
+        api_key = st.secrets.get("ODDS_API_KEY", "")
+    except:
+        api_key = os.getenv("ODDS_API_KEY", "")
+    
+    if not api_key:
         return pd.DataFrame()
+    
     url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds"
-    params = {
-        "apiKey": ODDS_API_KEY,
-        "regions": regions,
-        "markets": markets,
-        "oddsFormat": "decimal",
-    }
+    params = {"apiKey": api_key, "regions": regions, "markets": markets, "oddsFormat": "decimal"}
     try:
         resp = requests.get(url, params=params, timeout=10)
         data = resp.json()
@@ -40,7 +31,6 @@ def get_odds_api_sport(sport_key: str = "basketball_nba", regions: str = "us", m
                             "market": market.get("key", ""),
                             "outcome_name": outcome.get("name", ""),
                             "odds": outcome.get("price", 0),
-                            "point": outcome.get("point", None),
                         })
         return pd.DataFrame(rows)
     except Exception as e:
