@@ -118,10 +118,71 @@ with tabs[0]:
     game_log = None
 
     if source == "CSV Upload":
-        uploaded = st.file_uploader("Upload game log CSV", type=["csv"])
-        if uploaded:
+    uploaded = st.file_uploader(
+        "Upload game log (CSV, PNG, JPG)",
+        type=["csv", "png", "jpg", "jpeg"],
+        help="CSV for data, PNG/JPG for screenshot reference"
+    )
+    if uploaded:
+        file_type = uploaded.name.split(".")[-1].lower()
+        
+        if file_type == "csv":
             game_log = load_csv(uploaded)
-            st.success(f"Loaded {len(game_log)} games")
+            st.success(f"✅ Loaded {len(game_log)} games from CSV")
+            st.dataframe(game_log.head(), use_container_width=True)
+        
+        elif file_type in ["png", "jpg", "jpeg"]:
+            # Display the image
+            st.image(uploaded, caption="Screenshot Reference", use_container_width=True)
+            st.info("📸 Screenshot loaded. Please manually enter the game data below, or upload a CSV file with the actual data.")
+            
+            # Manual entry form for screenshot data
+            with st.form("manual_game_entry"):
+                st.subheader("Enter Game Data from Screenshot")
+                col1, col2 = st.columns(2)
+                with col1:
+                    home_team = st.text_input("Home Team")
+                    home_score = st.number_input("Home Score", min_value=0, value=0)
+                    home_h1 = st.number_input("Home H1 Score", min_value=0, value=0)
+                with col2:
+                    away_team = st.text_input("Away Team")
+                    away_score = st.number_input("Away Score", min_value=0, value=0)
+                    away_h1 = st.number_input("Away H1 Score", min_value=0, value=0)
+                
+                date = st.date_input("Game Date", value=datetime.now())
+                ft_line = st.number_input("FT Line (optional)", value=0.0, step=0.5)
+                odds = st.number_input("Odds (optional)", value=0.0, step=0.05)
+                
+                submitted = st.form_submit_button("Add Game")
+                
+                if submitted and home_team and away_team:
+                    new_game = pd.DataFrame([{
+                        "date": str(date),
+                        "home_team": home_team,
+                        "away_team": away_team,
+                        "home_score": home_score,
+                        "away_score": away_score,
+                        "home_h1_score": home_h1,
+                        "away_h1_score": away_h1,
+                        "ft_line": ft_line if ft_line > 0 else None,
+                        "odds": odds if odds > 0 else None,
+                    }])
+                    
+                    # Append to session state
+                    if "manual_games" not in st.session_state:
+                        st.session_state.manual_games = []
+                    st.session_state.manual_games.append(new_game)
+                    st.success(f"✅ Added: {home_team} vs {away_team}")
+            
+            # Show all manually added games
+            if "manual_games" in st.session_state and st.session_state.manual_games:
+                st.subheader("Manually Added Games")
+                all_manual = pd.concat(st.session_state.manual_games, ignore_index=True)
+                st.dataframe(all_manual, use_container_width=True)
+                
+                if st.button("Use Manual Games for Prediction"):
+                    game_log = all_manual
+                    st.success(f"✅ Using {len(game_log)} manually entered games")
     elif source == "API-Basketball":
         profile = LEAGUE_REGISTRY.get(league_name)
         if profile and profile.api_league_id:
