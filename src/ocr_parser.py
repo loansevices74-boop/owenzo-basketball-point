@@ -1,35 +1,72 @@
-"""Fast OCR parser — instant extraction from betting app screenshots."""
+"""Enhanced OCR parser for dark betting app screenshots."""
 import re
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 import pandas as pd
+import numpy as np
+
+def preprocess_image(image_file):
+    """Preprocess image for better OCR on dark backgrounds."""
+    img = Image.open(image_file)
+    
+    # Convert to RGB if needed
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+    
+    # Enhance contrast
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(2.0)
+    
+    # Enhance sharpness
+    enhancer = ImageEnhance.Sharpness(img)
+    img = enhancer.enhance(2.0)
+    
+    # Convert to grayscale
+    img_gray = img.convert('L')
+    
+    # Apply threshold to make text clearer
+    img_array = np.array(img_gray)
+    threshold = 128
+    img_binary = np.where(img_array > threshold, 255, 0).astype(np.uint8)
+    img_processed = Image.fromarray(img_binary)
+    
+    return img_processed
 
 def extract_text_from_image(image_file) -> list:
-    """Fast OCR using pytesseract with optimized settings."""
+    """Extract text with enhanced preprocessing."""
     try:
         import pytesseract
-        img = Image.open(image_file)
-        # Convert to grayscale for faster processing
-        img = img.convert('L')
-        # Fast OCR with custom config
-        custom_config = r'--oem 3 --psm 6'
-        text = pytesseract.image_to_string(img, config=custom_config)
-        # Split into lines with position info
+        
+        # Preprocess image
+        img_processed = preprocess_image(image_file)
+        
+        # OCR with custom config for better accuracy
+        custom_config = r'--oem 3 --psm 11 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,-:/'
+        text = pytesseract.image_to_string(img_processed, config=custom_config)
+        
+        # Split into lines
         lines = [{"text": line.strip(), "bbox": None} for line in text.split('\n') if line.strip()]
         return lines
     except Exception as e:
+        print(f"OCR Error: {e}")
         return []
 
 def parse_betting_app_screenshot(lines) -> list:
-    """Parse betting app screenshot format - optimized for speed."""
+    """Parse betting app screenshot - enhanced for dark theme."""
     games = []
     current_date = None
     current_league = None
     current_teams = []
     current_odds = []
     
+    # More flexible date pattern
     date_pattern = r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{1,2}:\d{2})'
-    odds_pattern = r'^(\d+\.\d{2})$'
-    team_skip = {'winner', '1st', 'half', 'o/u', 'home', 'matches', 'outrights', 'time', 'league', 'odds', 'sort', 'live', 'betting', 'all', 'ftv'}
+    
+    # Odds pattern - more flexible
+    odds_pattern = r'^(\d+\.\d{1,2})$'
+    
+    # Words to skip
+    team_skip = {'winner', '1st', 'half', 'o/u', 'home', 'matches', 'outrights', 'time', 'league', 
+                 'odds', 'sort', 'live', 'betting', 'all', 'ftv', 'load', 'code'}
     
     for line_info in lines:
         text = line_info["text"].strip()
@@ -58,7 +95,7 @@ def parse_betting_app_screenshot(lines) -> list:
             current_odds = []
             continue
         
-        # Check for odds (standalone decimal numbers)
+        # Check for odds
         odds_match = re.match(odds_pattern, text)
         if odds_match:
             val = float(text)
@@ -66,11 +103,13 @@ def parse_betting_app_screenshot(lines) -> list:
                 current_odds.append(text)
                 continue
         
-        # Check for team names
-        if len(text) >= 3 and text.lower() not in team_skip:
-            if not re.match(r'^\d', text):
+        # Check for team names - more flexible
+        if len(text) >= 2 and text.lower() not in team_skip:
+            # Skip if it's just numbers or dates
+            if not re.match(r'^\d+$', text):
+                # Clean up team name
                 clean_name = text.rstrip('.').strip()
-                if len(clean_name) >= 3:
+                if len(clean_name) >= 2:
                     current_teams.append(clean_name)
     
     # Save last game
@@ -87,7 +126,7 @@ def parse_betting_app_screenshot(lines) -> list:
     return games
 
 def process_image_to_dataframe(image_file) -> pd.DataFrame:
-    """Fast pipeline: image -> OCR -> parsed games -> DataFrame."""
+    """Full pipeline: image -> OCR -> parsed games -> DataFrame."""
     lines = extract_text_from_image(image_file)
     
     if not lines:
