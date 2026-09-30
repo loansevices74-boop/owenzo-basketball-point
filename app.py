@@ -1,14 +1,14 @@
 """
 Owenzõ Basketball Points — Streamlit UI
 7 tabs: Predictor, Line Explorer, Value & Combos, Backtest, Bankroll, League Board, VIP
-Dark + lime theme. No demo mode. Real API feeds.
+White background. Real API feeds. 200% Blessings predictions.
 """
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
 
@@ -34,7 +34,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS for dark + lime theme ─────────────────────────────────────
+# ── Custom CSS for white/plain theme ─────────────────────────────────────
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; }
@@ -81,24 +81,24 @@ if "fitted_models" not in st.session_state:
 if "vip_authenticated" not in st.session_state:
     st.session_state.vip_authenticated = False
 
-# ── Title ────────────────────────────────────────────────────────────────
+# ─ Title ────────────────────────────────────────────────────────────────
 st.title("🏀 Owenzõ Basketball Points")
 st.caption("HT & FT total points modelling across 60+ competitions worldwide")
 
 # ── Tabs ─────────────────────────────────────────────────────────────────
 tabs = st.tabs([
-    "🎯 Predictor",
+    " Predictor",
     "📊 Line Explorer",
     "💎 Value & Combos",
-    " Backtest",
-    "💰 Bankroll",
+    "📈 Backtest",
+    " Bankroll",
     "🌍 League Board",
     "👑 VIP",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════
 # TAB 1: PREDICTOR
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 with tabs[0]:
     st.header("🎯 Predictor — HT & FT Total Points")
 
@@ -118,71 +118,68 @@ with tabs[0]:
     game_log = None
 
     if source == "CSV Upload":
-    uploaded = st.file_uploader(
-        "Upload game log (CSV, PNG, JPG)",
-        type=["csv", "png", "jpg", "jpeg"],
-        help="CSV for data, PNG/JPG for screenshot reference"
-    )
-    if uploaded:
-        file_type = uploaded.name.split(".")[-1].lower()
+        uploaded = st.file_uploader(
+            "Upload game data (CSV, PNG, JPG)",
+            type=["csv", "png", "jpg", "jpeg"],
+            help="CSV for direct data, PNG/JPG for screenshot reference"
+        )
         
-        if file_type == "csv":
-            game_log = load_csv(uploaded)
-            st.success(f"✅ Loaded {len(game_log)} games from CSV")
-            st.dataframe(game_log.head(), use_container_width=True)
-        
-        elif file_type in ["png", "jpg", "jpeg"]:
-            # Display the image
-            st.image(uploaded, caption="Screenshot Reference", use_container_width=True)
-            st.info("📸 Screenshot loaded. Please manually enter the game data below, or upload a CSV file with the actual data.")
+        if uploaded:
+            file_type = uploaded.name.split(".")[-1].lower()
             
-            # Manual entry form for screenshot data
-            with st.form("manual_game_entry"):
-                st.subheader("Enter Game Data from Screenshot")
-                col1, col2 = st.columns(2)
-                with col1:
-                    home_team = st.text_input("Home Team")
-                    home_score = st.number_input("Home Score", min_value=0, value=0)
-                    home_h1 = st.number_input("Home H1 Score", min_value=0, value=0)
-                with col2:
-                    away_team = st.text_input("Away Team")
-                    away_score = st.number_input("Away Score", min_value=0, value=0)
-                    away_h1 = st.number_input("Away H1 Score", min_value=0, value=0)
+            if file_type == "csv":
+                game_log = load_csv(uploaded)
+                st.success(f"✅ Loaded {len(game_log)} games from CSV")
+                st.dataframe(game_log.head(), use_container_width=True)
                 
-                date = st.date_input("Game Date", value=datetime.now())
-                ft_line = st.number_input("FT Line (optional)", value=0.0, step=0.5)
-                odds = st.number_input("Odds (optional)", value=0.0, step=0.05)
+            elif file_type in ["png", "jpg", "jpeg"]:
+                st.image(uploaded, caption="Screenshot Reference", use_container_width=True)
+                st.info("📸 Screenshot loaded. Enter the game data below:")
                 
-                submitted = st.form_submit_button("Add Game")
-                
-                if submitted and home_team and away_team:
-                    new_game = pd.DataFrame([{
-                        "date": str(date),
-                        "home_team": home_team,
-                        "away_team": away_team,
-                        "home_score": home_score,
-                        "away_score": away_score,
-                        "home_h1_score": home_h1,
-                        "away_h1_score": away_h1,
-                        "ft_line": ft_line if ft_line > 0 else None,
-                        "odds": odds if odds > 0 else None,
-                    }])
+                with st.form("manual_from_screenshot"):
+                    st.subheader("Enter Game Data from Screenshot")
+                    num_games = st.number_input("Number of games to enter", min_value=1, max_value=20, value=1)
                     
-                    # Append to session state
-                    if "manual_games" not in st.session_state:
-                        st.session_state.manual_games = []
-                    st.session_state.manual_games.append(new_game)
-                    st.success(f"✅ Added: {home_team} vs {away_team}")
-            
-            # Show all manually added games
-            if "manual_games" in st.session_state and st.session_state.manual_games:
-                st.subheader("Manually Added Games")
-                all_manual = pd.concat(st.session_state.manual_games, ignore_index=True)
-                st.dataframe(all_manual, use_container_width=True)
-                
-                if st.button("Use Manual Games for Prediction"):
-                    game_log = all_manual
-                    st.success(f"✅ Using {len(game_log)} manually entered games")
+                    games_data = []
+                    for i in range(num_games):
+                        st.markdown(f"**Game {i+1}**")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            home = st.text_input(f"Home Team {i+1}", key=f"home_{i}")
+                            h_score = st.number_input(f"Home Score {i+1}", min_value=0, value=0, key=f"hs_{i}")
+                            h_h1 = st.number_input(f"Home H1 {i+1}", min_value=0, value=0, key=f"hh1_{i}")
+                        with col2:
+                            away = st.text_input(f"Away Team {i+1}", key=f"away_{i}")
+                            a_score = st.number_input(f"Away Score {i+1}", min_value=0, value=0, key=f"as_{i}")
+                            a_h1 = st.number_input(f"Away H1 {i+1}", min_value=0, value=0, key=f"ah1_{i}")
+                        with col3:
+                            g_date = st.date_input(f"Date {i+1}", value=datetime.now(), key=f"date_{i}")
+                            ft_line = st.number_input(f"FT Line {i+1}", value=0.0, step=0.5, key=f"ftl_{i}")
+                            odds = st.number_input(f"Odds {i+1}", min_value=1.0, value=1.90, step=0.05, key=f"odds_{i}")
+                        
+                        games_data.append({
+                            "date": str(g_date),
+                            "home_team": home,
+                            "away_team": away,
+                            "home_score": h_score,
+                            "away_score": a_score,
+                            "home_h1_score": h_h1,
+                            "away_h1_score": a_h1,
+                            "ft_line": ft_line if ft_line > 0 else None,
+                            "odds": odds,
+                        })
+                    
+                    submit_games = st.form_submit_button("Load Games", type="primary")
+                    
+                    if submit_games:
+                        valid_games = [g for g in games_data if g["home_team"] and g["away_team"]]
+                        if valid_games:
+                            game_log = pd.DataFrame(valid_games)
+                            st.success(f"✅ Loaded {len(valid_games)} games from screenshot")
+                            st.dataframe(game_log, use_container_width=True)
+                        else:
+                            st.error("Please enter at least one complete game")
+
     elif source == "API-Basketball":
         profile = LEAGUE_REGISTRY.get(league_name)
         if profile and profile.api_league_id:
@@ -210,60 +207,132 @@ with tabs[0]:
         fitted = fit_model(game_log, profile)
         st.session_state.fitted_models[league_name] = fitted
 
-        st.subheader("Team Ratings")
+        st.subheader("📊 Team Ratings")
         if "ratings" in fitted:
             st.dataframe(fitted["ratings"], use_container_width=True)
 
-        st.subheader("Matchup Prediction")
+        st.subheader("🎯 200% Blessings Predictions")
+        st.caption("High-confidence picks with 70%+ model probability")
+
+        # Generate predictions for all games in the dataset
+        predictions = []
         teams = fitted["ratings"]["team"].tolist() if "ratings" in fitted else []
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            home_team = st.selectbox("Home Team", teams)
-        with col2:
-            away_team = st.selectbox("Away Team", [t for t in teams if t != home_team])
-        with col3:
-            ft_line = st.number_input("FT Line", value=float(fitted["profile"].avg_home_score + fitted["profile"].avg_away_score), step=0.5)
-            ht_line = st.number_input("HT Line", value=float((fitted["profile"].avg_home_score + fitted["profile"].avg_away_score) * fitted["profile"].h1_share), step=0.5)
 
-        if st.button("Predict", type="primary"):
-            pred = predict(home_team, away_team, fitted)
-            probs = market_probabilities(pred, ft_line, ht_line)
+        # Create matchups from the data
+        for idx, row in game_log.iterrows():
+            home = row["home_team"]
+            away = row["away_team"]
 
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("FT Total (μ)", f"{pred['ft_total']:.1f}")
-            with col2:
-                st.metric("HT Total (μ)", f"{pred['ht_total']:.1f}")
-            with col3:
-                st.metric("Margin", f"{pred['margin']:.1f}")
-            with col4:
-                st.metric("H1 Share", f"{pred['h1_share']:.2%}")
+            if home in teams and away in teams:
+                try:
+                    pred = predict(home, away, fitted)
+                    probs = market_probabilities(
+                        pred,
+                        ft_line=row.get("ft_line", pred["ft_total"]) if row.get("ft_line") else pred["ft_total"],
+                        ht_line=pred["ht_total"]
+                    )
 
-            st.subheader("FT Probabilities")
-            ft_df = pd.DataFrame([probs["ft"]])
-            st.bar_chart(ft_df.T)
-            st.write(ft_df)
+                    ft_over_prob = probs["ft"]["over"]
+                    ft_under_prob = probs["ft"]["under"]
+                    ht_over_prob = probs["ht"]["over"]
+                    ht_under_prob = probs["ht"]["under"]
+                    home_win_prob = probs["combo"]["p_home_win"]
+                    away_win_prob = probs["combo"]["p_away_win"]
 
-            st.subheader("HT Probabilities")
-            ht_df = pd.DataFrame([probs["ht"]])
-            st.bar_chart(ht_df.T)
-            st.write(ht_df)
+                    # Find best pick (highest probability)
+                    all_probs = {
+                        "FT Over": ft_over_prob,
+                        "FT Under": ft_under_prob,
+                        "HT Over": ht_over_prob,
+                        "HT Under": ht_under_prob,
+                        "Home Win": home_win_prob,
+                        "Away Win": away_win_prob,
+                    }
+                    best_pick = max(all_probs, key=all_probs.get)
+                    best_prob = all_probs[best_pick]
 
-            st.subheader("Winner & Total Combo (Bivariate)")
-            combo = probs["combo"]
-            combo_df = pd.DataFrame([{
-                "Home & Over": f"{combo['home_over']:.3f}",
-                "Home & Under": f"{combo['home_under']:.3f}",
-                "Away & Over": f"{combo['away_over']:.3f}",
-                "Away & Under": f"{combo['away_under']:.3f}",
-                "Home Win": f"{combo['p_home_win']:.3f}",
-                "Away Win": f"{combo['p_away_win']:.3f}",
-            }])
-            st.dataframe(combo_df, use_container_width=True)
+                    predictions.append({
+                        "Game": f"{home} vs {away}",
+                        "Date": row.get("date", ""),
+                        "FT Total (μ)": f"{pred['ft_total']:.1f}",
+                        "HT Total (μ)": f"{pred['ht_total']:.1f}",
+                        "FT Over %": f"{ft_over_prob:.1%}",
+                        "FT Under %": f"{ft_under_prob:.1%}",
+                        "HT Over %": f"{ht_over_prob:.1%}",
+                        "HT Under %": f"{ht_under_prob:.1%}",
+                        "Home Win %": f"{home_win_prob:.1%}",
+                        "Away Win %": f"{away_win_prob:.1%}",
+                        "Best Pick": best_pick,
+                        "Confidence": f"{best_prob:.1%}",
+                        "Blessings": "⭐⭐⭐" if best_prob >= 0.80 else ("⭐⭐" if best_prob >= 0.70 else "⭐"),
+                    })
+                except Exception as e:
+                    predictions.append({
+                        "Game": f"{home} vs {away}",
+                        "Error": str(e),
+                    })
 
-# ═══════════════════════════════════════════════════════════════════════════
+        if predictions:
+            pred_df = pd.DataFrame(predictions)
+
+            # Show all predictions
+            st.subheader("All Predictions")
+            st.dataframe(pred_df, use_container_width=True)
+
+            # ── 200% BLESSINGS HIGHLIGHT ─────────────────────────────────
+            st.markdown("---")
+            st.subheader("🎁 200% Blessings Picks (70%+ Confidence)")
+
+            # Filter for 70%+ confidence
+            def parse_prob(p):
+                try:
+                    return float(p.strip('%')) / 100
+                except:
+                    return 0.0
+
+            blessings_picks = pred_df[pred_df["Confidence"].apply(parse_prob) >= 0.70].copy()
+
+            if len(blessings_picks) > 0:
+                st.success(f"✅ Found {len(blessings_picks)} high-confidence picks")
+
+                # Sort by confidence (highest first)
+                blessings_picks["Confidence_Num"] = blessings_picks["Confidence"].apply(parse_prob)
+                blessings_picks = blessings_picks.sort_values("Confidence_Num", ascending=False)
+                blessings_picks = blessings_picks.drop(columns=["Confidence_Num"])
+
+                st.dataframe(blessings_picks, use_container_width=True)
+
+                # Visual summary
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Games Analyzed", len(predictions))
+                with col2:
+                    st.metric("Blessings Picks (70%+)", len(blessings_picks))
+                with col3:
+                    avg_conf = blessings_picks["Confidence"].apply(parse_prob).mean()
+                    st.metric("Avg Confidence", f"{avg_conf:.1%}")
+
+                # Export blessings picks
+                st.subheader("📥 Export Blessings Picks")
+                csv_export = blessings_picks.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="Download Blessings Picks CSV",
+                    data=csv_export,
+                    file_name="owenzo_blessings_picks.csv",
+                    mime="text/csv",
+                )
+            else:
+                st.warning("No picks above 70% confidence in this dataset. Try uploading more games or different matchups.")
+
+                # Show top 3 closest picks
+                st.subheader("📊 Top 3 Closest Picks")
+                pred_df["Confidence_Num"] = pred_df["Confidence"].apply(parse_prob)
+                top3 = pred_df.nlargest(3, "Confidence_Num").drop(columns=["Confidence_Num"])
+                st.dataframe(top3, use_container_width=True)
+
+# ══════════════════════════════════════════════════════════════════════════
 # TAB 2: LINE EXPLORER
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 with tabs[1]:
     st.header("📊 Line Explorer")
     st.write("Explore how probabilities change across different lines.")
@@ -308,9 +377,9 @@ with tabs[1]:
     else:
         st.info("Run a prediction in the Predictor tab first.")
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 # TAB 3: VALUE & COMBOS
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 with tabs[2]:
     st.header("💎 Value & Combos")
     st.write("Enter odds to find positive EV bets. Blessings: combo market (Winner & Total).")
@@ -380,9 +449,9 @@ with tabs[2]:
     else:
         st.info("Run a prediction in the Predictor tab first.")
 
-# ══════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════
 # TAB 4: BACKTEST
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 with tabs[3]:
     st.header("📈 Backtest — Walk-Forward Calibration")
     st.write("See the edge — or its absence — before staking. Blessings: CLV tracking.")
@@ -458,7 +527,7 @@ with tabs[3]:
 
 # ══════════════════════════════════════════════════════════════════════════
 # TAB 5: BANKROLL
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 with tabs[4]:
     st.header("💰 Bankroll Simulator")
     st.write("Fractional Kelly + per-league stake ceiling. Survive variance.")
@@ -529,9 +598,9 @@ with tabs[4]:
             wins = sum(1 for b in bets if b["result"] == "win")
             st.metric("Win Rate", f"{wins/len(bets):.1%}")
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 # TAB 6: LEAGUE BOARD
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 with tabs[5]:
     st.header("🌍 League Board — 42 Categories")
     st.write("All registered competitions and their data feeds.")
@@ -571,9 +640,9 @@ with tabs[5]:
     fig.update_layout(template="plotly_dark", paper_bgcolor="#0D0D1A")
     st.plotly_chart(fig, use_container_width=True)
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════
 # TAB 7: VIP (Blessings Upgrade)
-# ═══════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════
 with tabs[6]:
     st.header("👑 VIP — Accumulated Mixed Games")
     st.markdown('<span class="vip-badge">PREMIUM ACCESS</span>', unsafe_allow_html=True)
@@ -600,7 +669,7 @@ with tabs[6]:
             st.session_state.vip_authenticated = False
             st.rerun()
 
-        st.subheader(" Today's VIP Picks — 6 Accumulated Mixed Games")
+        st.subheader("🏀 Today's VIP Picks — 6 Accumulated Mixed Games")
         st.caption("Updated daily. All picks have 70%+ model probability.")
 
         # Generate VIP picks from fitted models
@@ -669,4 +738,4 @@ with tabs[6]:
 
 # ── Footer ───────────────────────────────────────────────────────────────
 st.markdown("---")
-st.caption("🏀 Owenzõ Basketball Points v1.0 | MIT License | Responsible gambling: BeGambleAware · +2349021076350")
+st.caption("🏀 Owenzõ Basketball Points v1.0 | MIT License | Responsible gambling: Owenzo · +2349021076350")
