@@ -1,114 +1,123 @@
-"""OCR parser — extract game data from PNG/JPG screenshots."""
+"""OCR parser — extract game data from betting app screenshots."""
 import re
-import io
 from PIL import Image
 import pandas as pd
+from datetime import datetime
 
 def extract_text_from_image(image_file) -> str:
-    """Extract text from uploaded image using EasyOCR (better for sports screenshots)."""
+    """Extract text from uploaded image using EasyOCR."""
     try:
         import easyocr
         reader = easyocr.Reader(['en'], gpu=False)
         img = Image.open(image_file)
         results = reader.readtext(img)
-        text = " ".join([r[1] for r in results])
-        return text
+        # Get text with positions for better parsing
+        lines = []
+        for r in results:
+            lines.append({"text": r[1], "bbox": r[0]})
+        return lines
     except Exception as e:
-        # Fallback to pytesseract
         try:
             import pytesseract
             img = Image.open(image_file)
-            return pytesseract.image_to_string(img)
-        except Exception as e2:
-            return ""
+            return [{"text": pytesseract.image_to_string(img), "bbox": None}]
+        except:
+            return []
 
-def parse_games_from_text(text: str) -> list:
+def parse_betting_app_screenshot(lines) -> list:
     """
-    Parse game data from OCR text.
-    Looks for patterns like: TeamA vs TeamB, scores, odds
+    Parse betting app screenshot format:
+    - Date line: "Sep 30, 07:30 League Name - Sub League"
+    - Team lines: "Team A..." and "Team B..."
+    - Odds: two decimal numbers side by side (e.g., 1.17 and 4.40)
     """
     games = []
+    current_date = None
+    current_league = None
+    current_teams = []
+    current_odds = []
     
-    # Pattern 1: "TeamA vs TeamB" or "TeamA - TeamB"
-    matchup_pattern = r'([A-Z][a-zA-Z\s\.\']+)\s+(?:vs|v\.?|vs\.?|-|—)\s+([A-Z][a-zA-Z\s\.\']+)'
+    date_pattern = r'((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{1,2}:\d{2})'
+    odds_pattern = r'^(\d+\.\d{2})$'
+    team_skip = {'winner', '1st', 'half', 'o/u', 'home', 'matches', 'outrights', 'time', 'league', 'odds', 'sort', 'live', 'betting', 'all'}
     
-    # Pattern 2: Scores like "102-98" or "102 : 98" or "102 98"
-    score_pattern = r'(\d{2,3})\s*[-:]\s*(\d{2,3})'
-    
-    # Pattern 3: Odds like "1.85" or "2.10"
-    odds_pattern = r'(\d+\.\d{2})'
-    
-    # Find all matchups
-    matchups = re.findall(matchup_pattern, text)
-    
-    # Find all scores
-    scores = re.findall(score_pattern, text)
-    
-    # Find all odds
-    odds = re.findall(odds_pattern, text)
-    
-    # Combine into games
-    for i, (home, away) in enumerate(matchups):
-        home = home.strip()
-        away = away.strip()
-        
-        # Skip if too short (likely not a team name)
-        if len(home) < 3 or len(away) < 3:
+    for line_info in lines:
+        text = line_info["text"].strip()
+        if not text:
             continue
         
-        # Skip common false positives
-        skip_words = ['the', 'and', 'for', 'basketball', 'league', 'points', 'total', 'over', 'under']
-        if home.lower() in skip_words or away.lower() in skip_words:
+        # Check for date line
+        date_match = re.search(date_pattern, text, re.IGNORECASE)
+        if date_match:
+            # Save previous game if exists
+            if len(current_teams) >= 2:
+                games.append({
+                    "date": current_date,
+                    "league": current_league,
+                    "home_team": current_teams[0],
+                    "away_team": current_teams[1],
+                    "home_odds": float(current_odds[0]) if len(current_odds) >= 1 else 1.90,
+                    "away_odds": float(current_odds[1]) if len(current_odds) >= 2 else 1.90,
+                })
+            
+            current_date = date_match.group(1)
+            # Extract league from rest of line
+            rest = text[date_match.end():].strip()
+            if rest:
+                current_league = rest
+            current_teams = []
+            current_odds = []
             continue
         
-        game = {
-            "home_team": home,
-            "away_team": away,
-            "home_score": 0,
-            "away_score": 0,
-            "odds": 1.90,
-        }
+        # Check for odds (standalone decimal numbers)
+        odds_match = re.match(odds_pattern, text)
+        if odds_match:
+            val = float(text)
+            if 1.01 <= val <= 100.0:
+                current_odds.append(text)
+                continue
         
-        # Attach scores if available
-        if i < len(scores):
-            try:
-                game["home_score"] = int(scores[i][0])
-                game["away_score"] = int(scores[i][1])
-            except:
-                pass
-        
-        # Attach odds if available
-        if i < len(odds):
-            try:
-                odds_val = float(odds[i])
-                if 1.01 <= odds_val <= 50.0:
-                    game["odds"] = odds_val
-            except:
-                pass
-        
-        games.append(game)
+        # Check for team names (skip short words and headers)
+        if len(text) >= 3 and text.lower() not in team_skip:
+            # Skip if it looks like a number or date
+            if not re.match(r'^\d', text):
+                # Clean up team name (remove trailing dots)
+                clean_name = text.rstrip('.').strip()
+                if len(clean_name) >= 3:
+                    current_teams.append(clean_name)
+    
+    # Save last game
+    if len(current_teams) >= 2:
+        games.append({
+            "date": current_date,
+            "league": current_league,
+            "home_team": current_teams[0],
+            "away_team": current_teams[1],
+            "home_odds": float(current_odds[0]) if len(current_odds) >= 1 else 1.90,
+            "away_odds": float(current_odds[1]) if len(current_odds) >= 2 else 1.90,
+        })
     
     return games
 
 def process_image_to_dataframe(image_file) -> pd.DataFrame:
     """Full pipeline: image -> OCR -> parsed games -> DataFrame."""
-    text = extract_text_from_image(image_file)
+    lines = extract_text_from_image(image_file)
     
-    if not text.strip():
+    if not lines:
         return pd.DataFrame()
     
-    games = parse_games_from_text(text)
+    games = parse_betting_app_screenshot(lines)
     
     if not games:
         return pd.DataFrame()
     
     df = pd.DataFrame(games)
     
-    # Add required columns if missing
-    if "date" not in df.columns:
-        from datetime import datetime
-        df["date"] = datetime.now().strftime("%Y-%m-%d")
-    
+    # Add required columns
+    if "home_score" not in df.columns:
+        df["home_score"] = 0
+    if "away_score" not in df.columns:
+        df["away_score"] = 0
     if "home_h1_score" not in df.columns:
         df["home_h1_score"] = 0
     if "away_h1_score" not in df.columns:
