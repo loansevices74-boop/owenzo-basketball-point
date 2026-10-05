@@ -1,458 +1,265 @@
-"""
-Owenzõ Basketball Points — Fast Analysis + Full Predictions Table
-Instant OCR extraction, all predictions shown
-"""
 import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
-import os
+import requests
+from PIL import Image
+import io
+import base64
+from typing import List, Dict, Any
+from openai import OpenAI
 
-load_dotenv()
+st.set_page_config(page_title="Basketball Prediction & Odds Machine", layout="wide", page_icon="🏀")
+st.title("🏀 Basketball Odds Engine & Slip Generator (>70% Confidence)")
 
-from src.config import LEAGUE_REGISTRY, LeagueProfile
-from src.leagues import list_all_countries, list_all_leagues
-from src.model import fit_model, predict, market_probabilities
-from src.lines import evaluate_value
-from src.staking import fractional_kelly, bankroll_simulator
-from src.backtest import walk_forward_backtest
-from src.utils import total_probabilities
-from loaders.csv_loader import load_csv
-from src.ocr_parser import process_image_to_dataframe
+# --- Sidebar API Keys ---
+st.sidebar.header("🔑 API Credentials")
+odds_api_key = st.sidebar.text_input("The Odds API Key", value=st.secrets.get("ODDS_API_KEY", ""), type="password")
+qwen_api_key = st.sidebar.text_input("Qwen API Key (for Screenshots)", value=st.secrets.get("QWEN_API_KEY", ""), type="password")
+qwen_base_url = st.sidebar.text_input("Qwen Base URL", value=st.secrets.get("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"))
 
-# ── Page config ─────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Owenzõ Basketball Points",
-    page_icon="🏀",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# ============ ODDS API FUNCTIONS ============
+def get_basketball_leagues(api_key: str) -> List[Dict[str, Any]]:
+    url = f"https://api.the-odds-api.com/v4/sports?apiKey={api_key}"
+    res = requests.get(url)
+    if res.status_code != 200:
+        return []
+    sports = res.json()
+    return [s for s in sports if "basketball" in s.get("group", "").lower()]
 
-# ── Custom CSS ──────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-    .stApp { background-color: #FFFFFF; }
-    .stButton>button {
-        background-color: #ADFF2F;
-        color: #000000;
-        font-weight: bold;
-        border: none;
-        border-radius: 8px;
-        padding: 10px 24px;
-    }
-    .stButton>button:hover { background-color: #9ACD32; }
-    h1, h2, h3 { color: #262730; }
-    .blessings-row { background-color: #F0FFF0 !important; }
-    .gold-row { background-color: #FFF9C4 !important; }
-    .silver-row { background-color: #F5F5F5 !important; }
-    .bronze-row { background-color: #FFE0B2 !important; }
-    .upload-box {
-        border: 3px dashed #ADFF2F;
-        border-radius: 12px;
-        padding: 20px;
-        text-align: center;
-        background-color: #F9F9F9;
-        margin: 20px 0;
-    }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #F0F2F6;
-        border-radius: 8px 8px 0 0;
-        padding: 10px 20px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #ADFF2F;
-        color: #000000;
-    }
-</style>
-""", unsafe_allow_html=True)
+def get_odds(api_key: str, sport_key: str, regions: str = "eu,us", markets: str = "h2h,totals") -> List[Dict[str, Any]]:
+    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/?apiKey={api_key}&regions={regions}&markets={markets}"
+    res = requests.get(url)
+    if res.status_code == 200:
+        return res.json()
+    return []
 
-# ── Session state ────────────────────────────────────────────────────────
-if "fitted_models" not in st.session_state:
-    st.session_state.fitted_models = {}
-if "vip_authenticated" not in st.session_state:
-    st.session_state.vip_authenticated = False
+# Country mapping for leagues
+COUNTRY_MAPPING = {
+    "USA": ["nba", "wnba", "ncaab", "ncaaw"],
+    "Europe": ["euroleague", "eurocup"],
+    "Spain": ["acb"],
+    "Germany": ["bbl"],
+    "France": ["lnb"],
+    "Italy": ["lega-basket-serie-a"],
+    "Greece": ["greek-basket-league"],
+    "Turkey": ["bsl"],
+    "Russia": ["vbl"],
+    "China": ["cba"],
+    "Australia": ["nbl"],
+    "Argentina": ["lnb"],
+    "Brazil": ["nbb"],
+    "Lithuania": ["lkl"],
+    "Israel": ["winner-league"],
+    "Poland": ["plk"],
+    "Serbia": ["kls"],
+    "Croatia": ["aba-liga"],
+    "International": ["fiba-world-cup", "fiba-olympic-qualifying"],
+    "Mexico": ["lnbp"],
+    "Slovakia": ["slovakia-basketball"],
+    "Czech Republic": ["czech-nbl"],
+    "Japan": ["japan-b1"],
+    "Denmark": ["denmark-basketligaen"],
+    "Chile": ["chile-lnb"],
+    "Switzerland": ["switzerland-sbl"],
+    "Sweden": ["sweden-basketligan"],
+    "Austria": ["austria-bundesliga"],
+    "Albania": ["albania-basketball"],
+    "Belgium": ["belgium-bsl"],
+    "Great Britain": ["bbl"],
+    "Puerto Rico": ["puerto-rico-bsn"],
+    "Malaysia": ["malaysia-mbl"],
+    "Uganda": ["uganda-basketball"],
+    "Uruguay": ["uruguay-lub"],
+    "New Zealand": ["new-zealand-nznbl"],
+    "Hungary": ["hungary-nba"],
+    "Netherlands": ["netherlands-dbl"],
+    "Kenya": ["kenya-basketball"],
+    "England": ["england-nbl"],
+    "Malta": ["malta-basketball"],
+    "Kosovo": ["kosovo-basketball"],
+    "Portugal": ["portugal-lpb"],
+    "Vietnam": ["vietnam-vba"],
+}
 
-# ── Title ────────────────────────────────────────────────────────────────
-st.title("🏀 Owenzõ Basketball Points")
-st.caption("⚡ Fast Analysis — Instant OCR + Full Predictions Table")
-
-# ── Tabs ─────────────────────────────────────────────────────────────────
-tabs = st.tabs([
-    "⚡ Fast Predictor",
-    "📊 Line Explorer",
-    "💎 Value & Combos",
-    "📈 Backtest",
-    "💰 Bankroll",
-    "🌍 League Board",
-    " VIP",
-])
-
-# ══════════════════════════════════════════════════════════════════════════
-# TAB 1: FAST PREDICTOR
-# ══════════════════════════════════════════════════════════════════════════
-with tabs[0]:
-    st.header("⚡ Fast Predictor — Instant Analysis")
+def get_leagues_by_country(api_key: str) -> Dict[str, List[Dict[str, Any]]]:
+    leagues = get_basketball_leagues(api_key)
+    grouped = {}
     
-    col1, col2 = st.columns(2)
-    with col1:
-        country = st.selectbox("Country / Region", ["All"] + list_all_countries())
-    with col2:
-        if country == "All":
-            leagues = list_all_leagues()
-        else:
-            leagues = [k for k, v in LEAGUE_REGISTRY.items() if v.country == country]
-        league_name = st.selectbox("League", leagues)
-
-    st.markdown("---")
-    
-    # ── File Upload Section ──────────────────────────────────────────────
-    st.markdown('<div class="upload-box">', unsafe_allow_html=True)
-    st.subheader("📂 Upload Game Data")
-    st.write("📄 **CSV** — Direct data import")
-    st.write("📸 **PNG / JPG** — Instant OCR extraction")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    uploaded = st.file_uploader(
-        "Choose a file (CSV, PNG, JPG, JPEG)",
-        type=["csv", "png", "jpg", "jpeg"],
-        help="Upload CSV for direct data or PNG/JPG screenshot for instant OCR extraction"
-    )
-
-    game_log = None
-
-    if uploaded is not None:
-        file_type = uploaded.name.split(".")[-1].lower()
+    for league in leagues:
+        key = league.get('key', '')
+        title = league.get('title', '')
         
-        # ── CSV Processing ───────────────────────────────────────────────
-        if file_type == "csv":
-            try:
-                game_log = load_csv(uploaded)
-                st.success(f"✅ Loaded {len(game_log)} games from CSV")
-            except Exception as e:
-                st.error(f"CSV Error: {e}")
+        matched_country = None
+        for country, keywords in COUNTRY_MAPPING.items():
+            if any(kw in key.lower() for kw in keywords):
+                matched_country = country
+                break
         
-        # ── IMAGE OCR Processing (FAST) ──────────────────────────────────
-        elif file_type in ["png", "jpg", "jpeg"]:
-            st.info("⚡ Processing screenshot...")
-            
-            try:
-                uploaded.seek(0)
-                
-                # Show the uploaded image
-                st.image(uploaded, caption="Uploaded Screenshot", use_container_width=True)
-                
-                uploaded.seek(0)
-                ocr_df = process_image_to_dataframe(uploaded)
-                
-                if len(ocr_df) > 0:
-                    st.success(f"✅ Extracted {len(ocr_df)} game(s) instantly")
-                    st.dataframe(ocr_df, use_container_width=True)
-                    
-                    # Auto-verify and predict
-                    if st.button(" Generate Predictions", type="primary"):
-                        game_log = ocr_df
-                        st.rerun()
-                else:
-                    st.warning("️ OCR could not extract game data.")
-                    st.info("Try a clearer screenshot or use manual entry below.")
-                    
-                    # Fallback manual entry
-                    st.subheader("️ Manual Entry")
-                    with st.form("manual_entry"):
-                        num = st.number_input("Number of games", 1, 20, 1)
-                        games_data = []
-                        for i in range(num):
-                            st.markdown(f"**Game {i+1}**")
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                h = st.text_input(f"Home Team {i+1}", key=f"mh_{i}")
-                                hs = st.number_input(f"Home Odds {i+1}", 1.01, 100.0, 1.90, step=0.01, key=f"mho_{i}")
-                            with col2:
-                                a = st.text_input(f"Away Team {i+1}", key=f"ma_{i}")
-                                as_ = st.number_input(f"Away Odds {i+1}", 1.01, 100.0, 1.90, step=0.01, key=f"mao_{i}")
-                            with col3:
-                                league = st.text_input(f"League {i+1}", key=f"ml_{i}")
-                                gdate = st.text_input(f"Date/Time {i+1}", "Sep 30, 07:30", key=f"md_{i}")
-                            games_data.append({
-                                "date": gdate,
-                                "league": league,
-                                "home_team": h,
-                                "away_team": a,
-                                "home_score": 0,
-                                "away_score": 0,
-                                "home_odds": hs,
-                                "away_odds": as_,
-                                "home_h1_score": 0,
-                                "away_h1_score": 0,
-                                "ft_line": None,
-                            })
-                        submit = st.form_submit_button("Load Games")
-                        if submit:
-                            valid = [g for g in games_data if g["home_team"] and g["away_team"]]
-                            if valid:
-                                game_log = pd.DataFrame(valid)
-                                st.success(f"✅ Loaded {len(valid)} games")
-                
-            except Exception as e:
-                st.error(f"OCR Error: {e}")
-
-    # ── RUN PREDICTIONS (INSTANT) ────────────────────────────────────────
-    if game_log is not None and len(game_log) > 0:
-        profile = LEAGUE_REGISTRY.get(league_name, LeagueProfile(league_name, "Custom", "csv"))
-        
-        with st.spinner("⚡ Running predictions..."):
-            fitted = fit_model(game_log, profile)
-            st.session_state.fitted_models[league_name] = fitted
-            
-            predictions = []
-            teams = fitted["ratings"]["team"].tolist() if "ratings" in fitted else []
-            
-            # Use the actual matchups from the uploaded data
-            for idx, row in game_log.iterrows():
-                home = row["home_team"]
-                away = row["away_team"]
-                league = row.get("league", league_name)
-                date = row.get("date", "")
-                home_odds = row.get("home_odds", 1.90)
-                away_odds = row.get("away_odds", 1.90)
-                
-                if home in teams and away in teams:
-                    try:
-                        pred = predict(home, away, fitted)
-                        probs = market_probabilities(
-                            pred,
-                            ft_line=pred["ft_total"],
-                            ht_line=pred["ht_total"]
-                        )
-                        
-                        ft_over = probs["ft"]["over"]
-                        ft_under = probs["ft"]["under"]
-                        ht_over = probs["ht"]["over"]
-                        ht_under = probs["ht"]["under"]
-                        home_win = probs["combo"]["p_home_win"]
-                        away_win = probs["combo"]["p_away_win"]
-                        
-                        # Best pick
-                        all_probs = {
-                            "FT Over": ft_over, "FT Under": ft_under,
-                            "HT Over": ht_over, "HT Under": ht_under,
-                            "Home Win": home_win, "Away Win": away_win,
-                        }
-                        best_pick = max(all_probs, key=all_probs.get)
-                        best_prob = all_probs[best_pick]
-                        
-                        # Rating
-                        if best_prob >= 0.80:
-                            rating = "⭐⭐⭐ GOLD"
-                        elif best_prob >= 0.75:
-                            rating = "⭐⭐ SILVER"
-                        elif best_prob >= 0.70:
-                            rating = "⭐ BRONZE"
-                        else:
-                            rating = "Standard"
-                        
-                        predictions.append({
-                            "Date": date,
-                            "League": league,
-                            "Matchup": f"{home} vs {away}",
-                            "Home Odds": home_odds,
-                            "Away Odds": away_odds,
-                            "FT Total (μ)": f"{pred['ft_total']:.1f}",
-                            "HT Total (μ)": f"{pred['ht_total']:.1f}",
-                            "Best Pick": best_pick,
-                            "Confidence": best_prob,
-                            "Confidence %": f"{best_prob:.1%}",
-                            "Rating": rating,
-                            "FT Over %": f"{ft_over:.1%}",
-                            "FT Under %": f"{ft_under:.1%}",
-                            "HT Over %": f"{ht_over:.1%}",
-                            "HT Under %": f"{ht_under:.1%}",
-                            "Home Win %": f"{home_win:.1%}",
-                            "Away Win %": f"{away_win:.1%}",
-                        })
-                    except Exception as e:
-                        pass
-            
-            if predictions:
-                pred_df = pd.DataFrame(predictions)
-                pred_df = pred_df.sort_values(by="Confidence", ascending=False)
-                
-                # ── FULL PREDICTIONS TABLE ───────────────────────────────
-                st.subheader("📊 All Predictions")
-                st.caption("All matchups with predictions. 70%+ picks highlighted in green.")
-                
-                display_cols = ["Date", "League", "Matchup", "Home Odds", "Away Odds", "Best Pick", "Confidence %", "Rating", "FT Total (μ)", "HT Total (μ)", "FT Over %", "FT Under %", "HT Over %", "HT Under %", "Home Win %", "Away Win %"]
-                
-                # Show all predictions in a table
-                st.dataframe(
-                    pred_df[display_cols],
-                    use_container_width=True,
-                    hide_index=True,
-                )
-                
-                # ── BLESSINGS SUMMARY ────────────────────────────────────
-                blessings_df = pred_df[pred_df["Confidence"] >= 0.70].copy()
-                
-                if len(blessings_df) > 0:
-                    st.markdown("---")
-                    st.subheader(f"🎁 200% Blessings Picks ({len(blessings_df)} games with 70%+ confidence)")
-                    
-                    # Metrics
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Total Games", len(predictions))
-                    with col2:
-                        st.metric("Blessings Picks (70%+)", len(blessings_df))
-                    with col3:
-                        gold = len(blessings_df[blessings_df["Rating"].str.contains("GOLD")])
-                        st.metric("GOLD (80%+)", gold)
-                    with col4:
-                        avg = blessings_df["Confidence"].mean()
-                        st.metric("Avg Confidence", f"{avg:.1%}")
-                    
-                    # Download blessings picks
-                    csv_export = blessings_df.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Download Blessings Picks CSV",
-                        data=csv_export,
-                        file_name=f"owenzo_blessings_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
-                        type="primary",
-                    )
-                else:
-                    st.info("No picks above 70% confidence in this dataset.")
-
-# ══════════════════════════════════════════════════════════════════════════
-# TAB 2: LINE EXPLORER
-# ══════════════════════════════════════════════════════════════════════════
-with tabs[1]:
-    st.header("📊 Line Explorer")
-    st.write("Explore how probabilities change across different lines.")
-
-    if st.session_state.fitted_models:
-        league_name = st.selectbox("Select League", list(st.session_state.fitted_models.keys()))
-        fitted = st.session_state.fitted_models[league_name]
-
-        teams = fitted["ratings"]["team"].tolist() if "ratings" in fitted else []
-        if len(teams) >= 2:
-            col1, col2 = st.columns(2)
-            with col1:
-                home_team = st.selectbox("Home Team", teams, key="le_home")
-            with col2:
-                away_team = st.selectbox("Away Team", [t for t in teams if t != home_team], key="le_away")
-
-            pred = predict(home_team, away_team, fitted)
-
-            ft_lines = np.arange(pred["ft_total"] - 20, pred["ft_total"] + 20, 1.0)
-            ft_probs_list = [total_probabilities(l, pred["ft_total"], pred["sigma_ft"]) for l in ft_lines]
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=ft_lines, y=[p["over"] for p in ft_probs_list], name="Over", line=dict(color="#ADFF2F")))
-            fig.add_trace(go.Scatter(x=ft_lines, y=[p["under"] for p in ft_probs_list], name="Under", line=dict(color="#FF6B6B")))
-            fig.update_layout(title="FT Total Probabilities by Line", template="plotly_white")
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Run a prediction in the Predictor tab first.")
-
-# ══════════════════════════════════════════════════════════════════════════
-# TAB 3: VALUE & COMBOS
-# ══════════════════════════════════════════════════════════════════════════
-with tabs[2]:
-    st.header(" Value & Combos")
-    st.write("Enter odds to find positive EV bets.")
-
-    if st.session_state.fitted_models:
-        league_name = st.selectbox("League", list(st.session_state.fitted_models.keys()), key="vc_league")
-        fitted = st.session_state.fitted_models[league_name]
-        teams = fitted["ratings"]["team"].tolist() if "ratings" in fitted else []
-
-        if len(teams) >= 2:
-            col1, col2 = st.columns(2)
-            with col1:
-                home_team = st.selectbox("Home Team", teams, key="vc_home")
-            with col2:
-                away_team = st.selectbox("Away Team", [t for t in teams if t != home_team], key="vc_away")
-
-            pred = predict(home_team, away_team, fitted)
-            probs = market_probabilities(pred)
-
-            st.subheader("Enter Odds (Decimal)")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                ft_over_odds = st.number_input("FT Over Odds", min_value=1.01, value=1.90, step=0.05)
-            with col2:
-                home_win_odds = st.number_input("Home Win Odds", min_value=1.01, value=1.85, step=0.05)
-            with col3:
-                away_win_odds = st.number_input("Away Win Odds", min_value=1.01, value=2.00, step=0.05)
-
-            ft_over_eval = evaluate_value(probs["ft"]["over"], ft_over_odds)
-            home_eval = evaluate_value(probs["combo"]["p_home_win"], home_win_odds)
-            away_eval = evaluate_value(probs["combo"]["p_away_win"], away_win_odds)
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("FT Over Edge", f"{ft_over_eval['edge']:.4f}", delta="VALUE" if ft_over_eval["is_value"] else "NO")
-            with col2:
-                st.metric("Home Win Edge", f"{home_eval['edge']:.4f}", delta="VALUE" if home_eval["is_value"] else "NO")
-            with col3:
-                st.metric("Away Win Edge", f"{away_eval['edge']:.4f}", delta="VALUE" if away_eval["is_value"] else "NO")
-    else:
-        st.info("Run a prediction in the Predictor tab first.")
-
-# ══════════════════════════════════════════════════════════════════════════
-# TAB 4: BACKTEST
-# ══════════════════════════════════════════════════════════════════════════
-with tabs[3]:
-    st.header("📈 Backtest")
-    st.info("Upload historical CSV data in the Predictor tab to enable backtesting.")
-
-# ══════════════════════════════════════════════════════════════════════════
-# TAB 5: BANKROLL
-# ══════════════════════════════════════════════════════════════════════════
-with tabs[4]:
-    st.header("💰 Bankroll Simulator")
-    starting_bankroll = st.number_input("Starting Bankroll ($)", 100, 100000, 1000, step=100)
-    kelly_fraction = st.slider("Kelly Fraction", 0.1, 0.5, 0.25, step=0.05)
-    st.write("Simulate bankroll growth based on Blessings picks.")
-
-# ══════════════════════════════════════════════════════════════════════════
-# TAB 6: LEAGUE BOARD
-# ══════════════════════════════════════════════════════════════════════════
-with tabs[5]:
-    st.header("🌍 League Board — 42 Categories")
-    rows = []
-    for name, profile in LEAGUE_REGISTRY.items():
-        rows.append({"League": name, "Country": profile.country, "Feed": profile.feed})
-    df = pd.DataFrame(rows)
-    st.dataframe(df, use_container_width=True)
-
-# ══════════════════════════════════════════════════════════════════════════
-# TAB 7: VIP
-# ══════════════════════════════════════════════════════════════════════════
-with tabs[6]:
-    st.header("👑 VIP Access")
-    if not st.session_state.vip_authenticated:
-        col1, col2 = st.columns(2)
-        with col1:
-            username = st.text_input("Username")
-        with col2:
-            password = st.text_input("Password", type="password")
-        if st.button("Login"):
-            if username == "owenzo" and password == "basketball2026":
-                st.session_state.vip_authenticated = True
-                st.rerun()
+        if not matched_country:
+            if "NBA" in title:
+                matched_country = "USA"
+            elif "Euro" in title:
+                matched_country = "Europe"
             else:
-                st.error("Invalid credentials")
-    else:
-        st.success("✅ VIP Access Granted")
-        if st.button("Logout"):
-            st.session_state.vip_authenticated = False
-            st.rerun()
+                matched_country = "Other"
+        
+        if matched_country not in grouped:
+            grouped[matched_country] = []
+        grouped[matched_country].append(league)
+    
+    return grouped
 
-# ── Footer ───────────────────────────────────────────────────────────────
-st.markdown("---")
-st.caption("🏀 Owenzõ Basketball Points v1.0 | MIT License | Responsible gambling: OWENZO contactowenzo@gmail.com")
+# ============ PREDICTOR FUNCTION ============
+def calculate_bounds(avg_home_score: float, avg_away_score: float, league_avg: float = 158.0) -> Dict[str, Any]:
+    expected_total = (avg_home_score + avg_away_score)
+    std_dev = 12.5
+    
+    ft_under_70 = expected_total + (1.28 * std_dev)
+    ft_over_70 = max(135.0, expected_total - (1.28 * std_dev))
+    
+    ht_expected = expected_total * 0.49
+    ht_under_70 = ht_expected + (1.28 * (std_dev * 0.55))
+    ht_over_70 = max(65.0, ht_expected - (1.28 * (std_dev * 0.55)))
+    
+    return {
+        "expected_fulltime": round(expected_total, 1),
+        "ft_over_70": round(ft_over_70 - 0.5, 0) + 0.5,
+        "ft_under_70": round(ft_under_70 + 0.5, 0) - 0.5,
+        "ht_over_70": round(ht_over_70 - 0.5, 0) + 0.5,
+        "ht_under_70": round(ht_under_70 + 0.5, 0) - 0.5,
+    }
+
+# ============ QWEN SCANNER FUNCTION ============
+def scan_image_with_qwen(api_key: str, base_url: str, image: Image.Image) -> str:
+    try:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        
+        prompt = "Analyze this basketball betting screenshot. Extract all matches, home/away teams, odds, lines (1st Half, Fulltime), and league names. Output as a clean structured Markdown table."
+        
+        response = client.chat.completions.create(
+            model="qwen-vl-max",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}},
+                    {"type": "text", "text": prompt}
+                ]
+            }]
+        )
+        
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+# ============ MAIN APP ============
+tabs = st.tabs(["📊 Live Odds & Predictions", "📸 Screenshot Scanner", "🎫 Slip Accumulator"])
+
+# TAB 0: Live Odds with Country Filter
+with tabs[0]:
+    st.header(" Fetch Match Odds by Country & League")
+    
+    if odds_api_key:
+        try:
+            with st.spinner("Loading available countries and leagues..."):
+                leagues_by_country = get_leagues_by_country(odds_api_key)
+            
+            if leagues_by_country:
+                countries = sorted(leagues_by_country.keys())
+                selected_country = st.selectbox(" Select Country", ["All Countries"] + countries, index=0)
+                
+                if selected_country == "All Countries":
+                    all_leagues = [l for leagues in leagues_by_country.values() for l in leagues]
+                    league_options = {f"{l['title']} ({l['key']})": l['key'] for l in all_leagues}
+                else:
+                    country_leagues = leagues_by_country.get(selected_country, [])
+                    league_options = {f"{l['title']} ({l['key']})": l['key'] for l in country_leagues}
+                
+                if league_options:
+                    selected_league_display = st.selectbox("🏆 Select League", list(league_options.keys()))
+                    selected_league_key = league_options[selected_league_display]
+                    
+                    if st.button("Fetch Matches & Predict", type="primary"):
+                        with st.spinner(f"Fetching odds for {selected_league_display}..."):
+                            odds_data = get_odds(odds_api_key, selected_league_key)
+                        
+                        if odds_data:
+                            st.success(f"✅ Found {len(odds_data)} matches in {selected_league_display}")
+                            st.write("---")
+                            
+                            for match in odds_data:
+                                home = match['home_team']
+                                away = match['away_team']
+                                
+                                bookmakers = match.get('bookmakers', [])
+                                home_score = 82.0
+                                away_score = 78.0
+                                
+                                if bookmakers:
+                                    first_bookmaker = bookmakers[0]
+                                    markets = first_bookmaker.get('markets', [])
+                                    
+                                    for market in markets:
+                                        if market.get('key') == 'h2h':
+                                            outcomes = market.get('outcomes', [])
+                                            for outcome in outcomes:
+                                                name = outcome.get('name', '')
+                                                price = outcome.get('price', 2.0)
+                                                if home.lower() in name.lower():
+                                                    home_score = 80 + (2.5 - price) * 15
+                                                elif away.lower() in name.lower():
+                                                    away_score = 80 + (2.5 - price) * 15
+                                
+                                preds = calculate_bounds(home_score, away_score)
+                                
+                                with st.expander(f"🏀 {home} vs {away}"):
+                                    col1, col2, col3 = st.columns(3)
+                                    col1.metric("Home Team", home)
+                                    col1.caption(f"Est. Score: {home_score:.1f}")
+                                    col2.metric("Away Team", away)
+                                    col2.caption(f"Est. Score: {away_score:.1f}")
+                                    col3.metric("Expected Total", preds['expected_fulltime'])
+                                    
+                                    st.write("**70% Confidence Bounds:**")
+                                    st.json(preds)
+                        else:
+                            st.warning("No matches found for this league. Try another league or check if games are scheduled.")
+                else:
+                    st.warning(f"No leagues available for {selected_country}. Try 'All Countries'.")
+            else:
+                st.warning("No active basketball leagues found or invalid API key.")
+        except Exception as e:
+            st.error(f"Error fetching leagues: {e}")
+    else:
+        st.info("👉 Enter your Odds API key in the sidebar to fetch real-time odds.")
+
+# TAB 1: Screenshot Scanner
+with tabs[1]:
+    st.header("📸 Upload Screenshot (.png, .jpg)")
+    uploaded_file = st.file_uploader("Upload Betting App Screenshot", type=["png", "jpg", "jpeg"])
+
+    if uploaded_file and qwen_api_key:
+        img = Image.open(uploaded_file)
+        st.image(img, caption="Uploaded Screenshot", use_container_width=True)
+
+        if st.button("Scan Screenshot with Qwen"):
+            with st.spinner("Extracting match odds using Qwen Vision..."):
+                result = scan_image_with_qwen(qwen_api_key, qwen_base_url, img)
+                st.markdown("### Processed Analysis")
+                st.markdown(result)
+    elif uploaded_file and not qwen_api_key:
+        st.warning("Please enter your Qwen API Key in the sidebar to process images.")
+
+# TAB 2: Slip Accumulator
+with tabs[2]:
+    st.header(" Daily / Weekly Accumulator Generator")
+    target_confidence = st.slider("Target Confidence", min_value=70, max_value=95, value=75)
+    num_legs = st.number_input("Number of Legs", min_value=2, max_value=25, value=10)
+    
+    if st.button("Generate (>70%) Accumulator"):
+        st.success(f"Generated Multi-Leg High-Probability Slip! (Confidence: {target_confidence}%, Legs: {int(num_legs)})")
+        st.info("⚠️ Accumulator logic pending — integrate odds_data from Tab 0 to auto-select legs.")
