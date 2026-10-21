@@ -81,7 +81,8 @@ with tab1:
             with st.status("🤖 AI Agents are scanning the globe...", expanded=True) as status:
                 st.write("📡 Fetching odds from 40+ leagues...")
                 try:
-                    report = generate_global_daily_report(DOMESTIC_LEAGUES, odds_api_key)
+                    # Pass the openrouter_key to the engine
+                    report = generate_global_daily_report(DOMESTIC_LEAGUES, odds_api_key, openrouter_key)
                     st.session_state['latest_global_report'] = report
                     status.update(label="✅ Global Report Generated Successfully!", state="complete", expanded=False)
                 except Exception as e:
