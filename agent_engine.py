@@ -1,6 +1,6 @@
 import os
 import requests
-from crewai import Agent, Task, Crew, Process
+from openai import OpenAI
 
 # ==========================================
 # 1. DATA FETCHING & SMART FILTERING
@@ -11,7 +11,6 @@ def get_odds_data(sport_key: str, api_key: str):
     return res.json() if res.status_code == 200 else []
 
 def get_top_matches_for_league(sport_key: str, api_key: str, max_matches=2):
-    """Fetches odds and uses math to find the most volatile/valuable matches."""
     matches = get_odds_data(sport_key, api_key)
     if not matches:
         return []
@@ -30,37 +29,20 @@ def get_top_matches_for_league(sport_key: str, api_key: str, max_matches=2):
     return scored_matches[:max_matches]
 
 # ==========================================
-# 2. AUTONOMOUS AI AGENTS (Lightweight & Stable)
+# 2. LIGHTWEIGHT AI AGENT (Direct API Calls)
 # ==========================================
 def generate_global_daily_report(DOMESTIC_LEAGUES: dict, odds_api_key: str, openrouter_key: str) -> str:
-    """Generates a massive, multi-league daily report efficiently."""
     
-    # Set environment variables for CrewAI to use OpenRouter natively
-    os.environ["OPENAI_API_BASE"] = "https://openrouter.ai/api/v1"
-    os.environ["OPENAI_API_KEY"] = openrouter_key
-    
-    # AGENT 1: The Sharp Researcher (Uses internal knowledge + odds data)
-    researcher = Agent(
-        role="Elite Sports Data Analyst",
-        goal="Analyze basketball odds and team matchups to find hidden value.",
-        backstory="You are a veteran sports bettor with deep knowledge of global basketball leagues, team playstyles, and historical matchups.",
-        llm="mistralai/mistral-7b-instruct:free",
-        verbose=False
+    # Initialize lightweight OpenAI client pointing to OpenRouter
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=openrouter_key
     )
 
-    # AGENT 2: The AI Handicapper
-    handicapper = Agent(
-        role="Professional AI Sports Handicapper",
-        goal="Generate highly confident, data-backed betting predictions with clear reasoning.",
-        backstory="You combine raw odds data with deep basketball knowledge to find +EV (positive expected value) bets.",
-        llm="mistralai/mistral-7b-instruct:free",
-        verbose=False
-    )
-
-    # Group leagues by country to batch AI tasks
-    country_tasks = []
+    country_matches_map = {}
     active_leagues_count = 0
 
+    # Fetch and filter odds
     for country, leagues in DOMESTIC_LEAGUES.items():
         country_matches = []
         for league in leagues:
@@ -73,43 +55,44 @@ def generate_global_daily_report(DOMESTIC_LEAGUES: dict, odds_api_key: str, open
                     if bookmakers and bookmakers[0].get('markets'):
                         outcomes = bookmakers[0]['markets'][0].get('outcomes', [])
                         odds_text = ", ".join([f"{o['name']}: {o['price']}" for o in outcomes[:2]])
-                        
                     country_matches.append(f"- {m['home_team']} vs {m['away_team']} | Odds: {odds_text}")
         
         if country_matches:
-            match_list = "\n".join(country_matches)
-            country_tasks.append({
-                "country": country,
-                "matches": match_list
-            })
+            country_matches_map[country] = "\n".join(country_matches)
 
-    if not country_tasks:
-        return "⚠️ No active matches found across any leagues today. Check back tomorrow!"
+    if not country_matches_map:
+        return "️ No active matches found across any leagues today. Check back tomorrow!"
 
-    # Create ONE task per active country
-    tasks = []
-    for ct in country_tasks:
-        tasks.append(Task(
-            description=f"""
-            Analyze the following basketball matches for {ct['country']}:
-            {ct['matches']}
-            
-            For EACH match listed above, use your extensive basketball knowledge and the provided odds to:
-            1. Provide ONE specific, high-confidence betting pick (Moneyline, Spread, or Total).
-            2. Write 1-2 sentences of 'Sharp Reasoning' explaining the pick based on team styles, pace, or odds value.
-            Format as a clean, professional list.
-            """,
-            expected_output="A structured list of betting picks for the provided matches.",
-            agent=handicapper
-        ))
+    # Process AI analysis in batches (Lightweight & Fast)
+    ai_analysis = ""
+    
+    system_prompt = """You are an elite professional sports handicapper. 
+    Analyze the provided basketball matches and odds. 
+    For each match, provide ONE specific, high-confidence betting pick (Moneyline, Spread, or Total) 
+    and write 1 sentence of 'Sharp Reasoning' based on team styles, pace, or odds value. 
+    Format as a clean list."""
 
-    # Execute Crew
-    crew = Crew(agents=[researcher, handicapper], tasks=tasks, process=Process.sequential)
-    result = crew.kickoff()
+    # Group countries to save API calls (process 5 countries at a time)
+    countries = list(country_matches_map.keys())
+    for i in range(0, len(countries), 5):
+        batch_countries = countries[i:i+5]
+        batch_text = ""
+        for c in batch_countries:
+            batch_text += f"\n### {c}\n{country_matches_map[c]}\n"
+
+        response = client.chat.completions.create(
+            model="mistralai/mistral-7b-instruct:free",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Analyze these matches:\n{batch_text}"}
+            ],
+            temperature=0.3
+        )
+        ai_analysis += response.choices[0].message.content + "\n\n"
 
     # Format Final Product
     premium_report = f"""
-# 🏀 **GLOBAL DAILY AI BETTING INTELLIGENCE REPORT** 🏀
+# 🏀 **GLOBAL DAILY AI BETTING INTELLIGENCE REPORT** 
 **Total Leagues Scanned:** {len(DOMESTIC_LEAGUES)}  
 **Active Leagues with Picks:** {active_leagues_count}  
 **Generated By:** Owenzo Autonomous AI Handicapper  
@@ -118,11 +101,11 @@ def generate_global_daily_report(DOMESTIC_LEAGUES: dict, odds_api_key: str, open
 ---
 ### 📊 **TOP AI-GENERATED VALUE PICKS BY REGION**
 
-{result.raw}
+{ai_analysis}
 
 ---
 ### 🔒 **UNLOCK THE FULL DEEP-DIVE ANALYSIS & LIVE TRACKING**
-The free report above contains the top 1 pick per active league. 
+The free report above contains the top picks per active league. 
 Our **Premium Daily Slip** includes:
 ✅ Full 10-Leg High-Confidence Accumulator  
 ✅ Live Line-Movement Alerts & Kelly Criterion Staking  
